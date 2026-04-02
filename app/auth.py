@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from fastapi import HTTPException
+from app.config import SECRET_KEY
 
-SECRET_KEY = "supersecretkey123"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 

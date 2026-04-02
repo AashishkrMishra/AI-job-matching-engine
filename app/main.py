@@ -21,12 +21,18 @@ from fastapi import UploadFile, File
 from app.ai.file_parser import read_pdf, read_docx, read_txt
 from app.ai.resume_analyzer import analyze_resume
 from app.ai.llm_recommender import generate_recommendation
+from app.config import FRONTEND_URL
 
 app = FastAPI()
 
+# Build CORS origins: always allow localhost + production frontend URL
+cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+if FRONTEND_URL and FRONTEND_URL not in cors_origins:
+    cors_origins.append(FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
