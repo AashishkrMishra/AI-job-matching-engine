@@ -16,16 +16,26 @@ headers = {
 
 def generate_recommendation(resume_skills, job_skills, missing_skills, match_score):
 
-    system_prompt = """You are a professional resume advisor AI. 
-Your job is to analyze a candidate's resume against job requirements and give specific, actionable suggestions to improve their CV score. 
+    system_prompt = """You are a professional resume advisor AI.
+Your job is to analyze a candidate's resume against job requirements and give specific, actionable suggestions to improve their CV score.
 Be direct and helpful. Use bullet points."""
+
+    # match_score is None when no skills could be read out of the job posting,
+    # which is a different situation from a genuine 0% match.
+    if match_score is None:
+        score_line = (
+            "- Current match score: could not be determined — no recognisable "
+            "skills were found in the job posting"
+        )
+    else:
+        score_line = f"- Current match score: {match_score}%"
 
     user_prompt = f"""Here is the analysis of a candidate's resume vs a job posting:
 
 - Candidate's current skills: {', '.join(resume_skills) if resume_skills else 'None detected'}
 - Job required skills: {', '.join(job_skills) if job_skills else 'None detected'}
 - Skills MISSING from resume: {', '.join(missing_skills) if missing_skills else 'None — great match!'}
-- Current match score: {match_score}%
+{score_line}
 
 Based on this, tell the candidate:
 1. Exactly which skills they need to ADD to their resume to increase their CV score.

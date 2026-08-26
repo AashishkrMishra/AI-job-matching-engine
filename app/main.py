@@ -1,27 +1,22 @@
-from fastapi import FastAPI, Depends, HTTPException
+import io
+import os
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from app.security import hash_password
-from app.security import verify_password
-from app.auth import create_access_token
-from app.dependencies import get_current_user
 from fastapi.security import OAuth2PasswordRequestForm
-from app.database import SessionLocal, engine, Base, get_db
+from sqlalchemy.orm import Session
+
 from app import models
 import app.schemas as schemas
-from app.schemas import JobCreate
-from app.models import Job
-from fastapi import Depends
-from app.dependencies import get_current_user
-from sqlalchemy.orm import Session
-from app.database import SessionLocal
+from app.ai.file_parser import read_docx, read_pdf, read_txt
 from app.ai.job_analyzer import analyze_job_description
-from app.ai.resume_analyzer import analyze_resume
-from fastapi import UploadFile, File
-from app.ai.file_parser import read_pdf, read_docx, read_txt
-from app.ai.resume_analyzer import analyze_resume
 from app.ai.llm_recommender import generate_recommendation
+from app.ai.resume_analyzer import analyze_resume
+from app.auth import create_access_token
 from app.config import FRONTEND_URL
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.security import hash_password, verify_password
 
 app = FastAPI()
 
@@ -38,7 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-Base.metadata.create_all(bind=engine)
+# Schema is owned by Alembic (`alembic upgrade head`), not by
+# `Base.metadata.create_all` — create_all only ever creates missing tables and
+# silently ignores changes to existing ones, so the two cannot coexist.
 
 @app.post("/register")
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -80,13 +77,6 @@ def read_current_user(current_user = Depends(get_current_user)):
         "id": current_user.id,
         "email": current_user.email
     }
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @app.post("/jobs", response_model=schemas.JobOut)
 def create_job(
@@ -156,51 +146,98 @@ def delete_job(
     return {"message": "Job deleted successfully"}
 
 @app.post("/analyze-job")
-def analyze_job(data: dict):
-    result = analyze_job_description(data["description"])
-    return result
+def analyze_job(
+    data: schemas.JobAnalyzeIn,
+    current_user: models.User = Depends(get_current_user)
+):
+    return analyze_job_description(data.description)
 
 @app.post("/analyze-resume")
-def analyze_resume_api(data: dict):
+def analyze_resume_api(
+    data: schemas.ResumeAnalyzeIn,
+    current_user: models.User = Depends(get_current_user)
+):
+    result = analyze_resume(data.resume, data.job)
 
-    result = analyze_resume(data["resume"], data["job"])
-
-    recommendation = generate_recommendation(
+    result["ai_recommendation"] = generate_recommendation(
         result["resume_skills"],
         result["job_skills"],
         result["missing_skills"],
         result["match_percentage"]
     )
 
-    result["ai_recommendation"] = recommendation
-
     return result
+
+
+# Resume upload limits. The cap is enforced while draining the stream so we
+# never hand an oversized file to pypdf or pay for an LLM call on it.
+MAX_RESUME_BYTES = 5 * 1024 * 1024  # 5 MB
+_UPLOAD_CHUNK = 64 * 1024
+
+RESUME_PARSERS = {
+    ".pdf": read_pdf,
+    ".docx": read_docx,
+    ".txt": read_txt,
+}
+
+
+async def _read_capped(upload: UploadFile) -> io.BytesIO:
+    buffer = io.BytesIO()
+    total = 0
+
+    while chunk := await upload.read(_UPLOAD_CHUNK):
+        total += len(chunk)
+        if total > MAX_RESUME_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Resume file too large (limit {MAX_RESUME_BYTES // (1024 * 1024)} MB)."
+            )
+        buffer.write(chunk)
+
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Uploaded resume file is empty.")
+
+    buffer.seek(0)
+    return buffer
+
 
 @app.post("/analyze-resume-file")
 async def analyze_resume_file(
     resume: UploadFile = File(...),
-    job_description: str = ""
+    # Must be Form(...), not a bare str — the frontend sends this in the
+    # multipart body, and a bare str binds as a *query* parameter, so every
+    # upload silently analysed against an empty job description.
+    job_description: str = Form(..., min_length=1),
+    current_user: models.User = Depends(get_current_user)
 ):
-    filename = resume.filename.lower()
+    suffix = os.path.splitext((resume.filename or "").lower())[1]
+    parser = RESUME_PARSERS.get(suffix)
 
-    if filename.endswith(".pdf"):
-        text = read_pdf(resume.file)
-    elif filename.endswith(".docx"):
-        text = read_docx(resume.file)
-    elif filename.endswith(".txt"):
-        text = read_txt(resume.file)
-    else:
-        return {"error": "Unsupported file type"}
+    if parser is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{suffix or 'unknown'}'. Use PDF, DOCX or TXT."
+        )
+
+    buffer = await _read_capped(resume)
+
+    try:
+        text = parser(buffer)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read that resume file — it may be corrupt or password-protected."
+        )
 
     result = analyze_resume(text, job_description)
 
-    recommendation = generate_recommendation(
+    result["ai_recommendation"] = generate_recommendation(
         result["resume_skills"],
         result["job_skills"],
         result["missing_skills"],
         result["match_percentage"]
     )
-
-    result["ai_recommendation"] = recommendation
 
     return result
