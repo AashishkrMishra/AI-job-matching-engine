@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Markdown from 'react-markdown';
 import { analyzeResume, analyzeResumeFile } from '../services/api';
 
 function ResumeAnalyzer() {
@@ -8,6 +9,15 @@ function ResumeAnalyzer() {
     const [results, setResults] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    // FastAPI sends validation errors as an array of objects and HTTPException
+    // details as a plain string, so handle both before falling back.
+    const errorMessage = (err, fallback) => {
+        const detail = err.response?.data?.detail;
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
+        return fallback;
+    };
 
     const handleAnalyzeText = async (e) => {
         e.preventDefault();
@@ -21,7 +31,7 @@ function ResumeAnalyzer() {
             const res = await analyzeResume(resumeText, jobText);
             setResults(res.data);
         } catch (err) {
-            setError('Analysis failed. Please try again.');
+            setError(errorMessage(err, 'Analysis failed. Please try again.'));
         } finally {
             setLoading(false);
         }
@@ -41,21 +51,10 @@ function ResumeAnalyzer() {
             const res = await analyzeResumeFile(file, jobText);
             setResults(res.data);
         } catch (err) {
-            setError('File analysis failed. Please try again.');
+            setError(errorMessage(err, 'File analysis failed. Please try again.'));
         } finally {
             setLoading(false);
         }
-    };
-
-    const formatRecommendation = (text) => {
-        if (!text) return '';
-        // Convert markdown-like formatting for display
-        return text
-            .replace(/### (.*)/g, '<h4>$1</h4>')
-            .replace(/#### (.*)/g, '<h4>$1</h4>')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\n- /g, '\n• ')
-            .replace(/\n/g, '<br/>');
     };
 
     return (
@@ -126,12 +125,23 @@ function ResumeAnalyzer() {
 
             {results && (
                 <div className="results-section">
-                    {/* Match Score */}
+                    {/* Match Score — null means the job description had no
+                        recognisable skills, which is not the same as 0%. */}
                     <div className="results-card">
-                        <div className="match-score">
-                            <div className="score-number">{results.match_percentage}%</div>
-                            <div className="score-label">Match Score</div>
-                        </div>
+                        {results.match_percentage === null ? (
+                            <div className="match-score">
+                                <div className="score-label">
+                                    Couldn't identify any required skills in that job
+                                    description, so there's no score to report. Try pasting
+                                    the full posting, including its requirements section.
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="match-score">
+                                <div className="score-number">{results.match_percentage}%</div>
+                                <div className="score-label">Match Score</div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Skills Breakdown */}
@@ -174,16 +184,16 @@ function ResumeAnalyzer() {
                         </div>
                     )}
 
-                    {/* AI Recommendation */}
+                    {/* AI Recommendation — rendered via react-markdown, which
+                        escapes HTML by default. Never use dangerouslySetInnerHTML
+                        here: this text comes from an LLM reading an uploaded file,
+                        so it is untrusted input. */}
                     {results.ai_recommendation && (
                         <div className="results-card">
                             <h3>🤖 AI Recommendation</h3>
-                            <div
-                                className="ai-recommendation"
-                                dangerouslySetInnerHTML={{
-                                    __html: formatRecommendation(results.ai_recommendation),
-                                }}
-                            />
+                            <div className="ai-recommendation">
+                                <Markdown>{results.ai_recommendation}</Markdown>
+                            </div>
                         </div>
                     )}
                 </div>

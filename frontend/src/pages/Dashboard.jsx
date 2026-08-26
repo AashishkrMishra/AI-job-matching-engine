@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getJobs, createJob, updateJob, deleteJob } from '../services/api';
 
@@ -12,11 +12,9 @@ function Dashboard() {
     const [error, setError] = useState('');
     const navigate = useNavigate();
 
-    useEffect(() => {
-        fetchJobs();
-    }, []);
-
-    const fetchJobs = async () => {
+    // Declared before the effect that lists it as a dependency: `const` bindings
+    // are not hoisted, so the effect could not reference it from above.
+    const fetchJobs = useCallback(async () => {
         try {
             const res = await getJobs();
             setJobs(res.data);
@@ -29,7 +27,11 @@ function Dashboard() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [navigate]);
+
+    useEffect(() => {
+        fetchJobs();
+    }, [fetchJobs]);
 
     const handleAdd = async (e) => {
         e.preventDefault();
@@ -40,7 +42,7 @@ function Dashboard() {
             setJobs([res.data, ...jobs]);
             setCompany('');
             setRole('');
-        } catch (err) {
+        } catch {
             setError('Failed to add job');
         }
     };
@@ -49,7 +51,7 @@ function Dashboard() {
         try {
             await updateJob(jobId, newStatus);
             setJobs(jobs.map((j) => (j.id === jobId ? { ...j, status: newStatus } : j)));
-        } catch (err) {
+        } catch {
             setError('Failed to update status');
         }
     };
@@ -58,7 +60,7 @@ function Dashboard() {
         try {
             await deleteJob(jobId);
             setJobs(jobs.filter((j) => j.id !== jobId));
-        } catch (err) {
+        } catch {
             setError('Failed to delete job');
         }
     };

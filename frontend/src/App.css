@@ -508,16 +508,66 @@ body {
   border: 1px solid rgba(231, 76, 60, 0.2);
 }
 
+/* Rendered from markdown by react-markdown, so these are real block
+   elements — no `white-space: pre-wrap`, which would double the spacing
+   that <p> and <li> margins already provide. */
 .ai-recommendation {
-  white-space: pre-wrap;
   line-height: 1.7;
   color: var(--text-secondary);
   font-size: 0.92rem;
 }
 
+.ai-recommendation h1,
+.ai-recommendation h2,
+.ai-recommendation h3,
 .ai-recommendation h4,
 .ai-recommendation strong {
   color: var(--text-primary);
+}
+
+.ai-recommendation h1,
+.ai-recommendation h2,
+.ai-recommendation h3,
+.ai-recommendation h4 {
+  font-size: 1rem;
+  margin: 1.2rem 0 0.5rem;
+}
+
+.ai-recommendation h1:first-child,
+.ai-recommendation h2:first-child,
+.ai-recommendation h3:first-child,
+.ai-recommendation h4:first-child,
+.ai-recommendation p:first-child {
+  margin-top: 0;
+}
+
+.ai-recommendation p {
+  margin: 0 0 0.8rem;
+}
+
+.ai-recommendation ol,
+.ai-recommendation ul {
+  margin: 0 0 0.8rem;
+  padding-left: 1.4rem;
+}
+
+.ai-recommendation li {
+  margin-bottom: 0.35rem;
+}
+
+.ai-recommendation code {
+  background: var(--bg-elevated, rgba(127, 127, 127, 0.15));
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.86em;
+}
+
+.ai-recommendation a {
+  color: var(--accent);
+}
+
+.ai-recommendation > :last-child {
+  margin-bottom: 0;
 }
 
 .loading-spinner {
